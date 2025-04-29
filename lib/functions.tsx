@@ -1,3 +1,13 @@
+import { INCH_TO_MM, PaperSizeKey, VALID_PAPER_KEYS, DPI } from "./const";
+
+export const mmToPixels = (mm: number): number => {
+  return Math.round((mm / INCH_TO_MM) * DPI);
+}
+
+export function isPaperSizeKeyOptimized(key: string): key is PaperSizeKey {
+  return VALID_PAPER_KEYS.has(key);
+}
+
 
 // 工具函数
 export async function loadImageFile(file: File): Promise<HTMLImageElement> {
