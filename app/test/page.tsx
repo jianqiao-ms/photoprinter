@@ -1,8 +1,10 @@
 "use client"
 import * as React from 'react';
 
+
 import jsPDF from 'jspdf';
 import exifr from 'exifr';
+
 
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -16,62 +18,44 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
 
+import { PAPER_SIZES, PaperConfig, PaperSizeKey, BLANK_PIXELS, Region, GeoData, PhotoMap } from '@/lib/const';
+import { isPaperSizeKeyOptimized, getLocationName, loadImageFile, mmToPixels, pixelsToMM, useGeodata } from '@/lib/functions'
+import { PaperContext, GeoContext, PhotoContext } from '@/lib/context';
 
-import { loadImageFile } from '@/lib/functions';
-// import { getLocationName, loadImageFile, createHighResCanvas, printTemplate } from '@/lib/functions'
 import Photo from '@/components/photo'
 
-// DPI配置
-const DPI = 300;
-const INCH_TO_MM = 25.4;
 
-const mmToPixels = (mm: number): number => {
-  return Math.round((mm / INCH_TO_MM) * DPI);
-}
-
-const pixelsToMM = (pixels: number): number => {
-  return Math.round((pixels / DPI) * INCH_TO_MM);
-}
-
-
-// 相纸配置
-const PAPER_SIZES = {
-  '7inch': {
-    mmWidth: 178,
-    mmHeight: 127,
-    pixelWidth: mmToPixels(178),
-    pixelHeight: mmToPixels(127)
-  },
-  '8inch': {
-    mmWidth: 203,
-    mmHeight: 152,
-    pixelWidth: mmToPixels(203),
-    pixelHeight: mmToPixels(152)
-  }
-};
-
-const VALID_PAPER_KEYS = new Set(Object.keys(PAPER_SIZES));
-
-function isPaperSizeKeyOptimized(key: string): key is PaperSizeKey {
-  return VALID_PAPER_KEYS.has(key);
-}
-
-type PaperSizeKey = keyof typeof PAPER_SIZES;
-type PaperConfig = typeof PAPER_SIZES['7inch'];
+// let cachedGeoJSON: GeoData = {
+//   "province": null,
+//   "city": null,
+//   "distinct": null
+// };
+// let cachedGeoJSONC: Region[] | null = null;
+// let cachedGeoJSOND: Region[] | null = null;
 
 export default function Page() {
-  // 用于存储所有 canvas 的引用
-  // const canvasRefs = React.useRef<HTMLCanvasElement[]>([]);
-  // const [count, setCount] = React.useState<number>(0)
-  // const [imageMap, setImageMap] = React.useState<{[key: number]: HTMLImageElement|Boolean}>({});
+  // const page = React.useContext(PageContext);
+  const geodataP = useGeodata('p')
+  const geodataC = useGeodata('c')
+  const geodataD = useGeodata('d')
+  // const { geodataC, error, isLoading } = useSWR('/geojson/c.geojson', fetch)
+  // const { geodataD, error, isLoading } = useSWR('/geojson/d.geojson', fetch)
 
   const [selectedSize, setSelectedSize] = React.useState<PaperSizeKey>('7inch');
   const [files, setFiles] = React.useState<File[]>([])
-  const [canvasMap, setCanvasMap] = React.useState<{[key: number]: {
-    ready: boolean,
-    canvas: HTMLCanvasElement
-  }}>({});
-  const [okToPrint, setOkToPrint] = React.useState<boolean>(false)
+  const [photos, setPhotos] = React.useState<PhotoMap>({});
+  const [readyGeodata, setReadyGeodata] = React.useState<boolean>(false)
+  const [readyPrint, setReadyPrint] = React.useState<boolean>(false)
+
+  // const [geoData, setGeoData] = React.useState<{
+  //   "province": Region[] | null,
+  //   "city": Region[] | null,
+  //   "distinct": Region[] | null
+  // }>({
+  //   "province": null,
+  //   "city": null,
+  //   "distinct": null
+  // });
 
   const handleSelectedSize = (value: string) => {
     if (isPaperSizeKeyOptimized(value))
@@ -79,12 +63,19 @@ export default function Page() {
   }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    console.debug(typeof (e.target.files))
-    console.debug(e.target.files)
     if (e.target.files) {
-        // 将 FileList 转换为 File 数组
-      const newFiles = Array.from(e.target.files);
-      setFiles(Array.from(e.target.files));
+      // 将 FileList 转换为 File 数组
+      // const newFiles = Array.from(e.target.files);
+      // setFiles(Array.from(e.target.files));
+      Array.from(e.target.files).map((file, index)=> {
+        setPhotos((previous) => ({
+          ...previous,
+          [index]: {
+            processing: false,
+            file: file
+          }
+        }))
+      })
     }
   }
 
@@ -95,8 +86,9 @@ export default function Page() {
       format: [127, 178] // 初始页面尺寸
     });
 
-    Object.entries(canvasMap).map(([index, photo], _index)=>{
+    Object.entries(photos).map(([index, photo], _index) => {
       const canvas = photo.canvas;
+      if (!canvas) return;
       if (_index > 0) {
         // 添加新页并动态设置方向
         const orientation = canvas.width > canvas.height ? 'landscape' : 'portrait';
@@ -110,7 +102,7 @@ export default function Page() {
         'PNG',
         0,
         0,
-        pixelsToMM(canvas.width), 
+        pixelsToMM(canvas.width),
         pixelsToMM(canvas.height),
         undefined,
         'FAST'
@@ -119,47 +111,87 @@ export default function Page() {
     doc.save('mixed-orientation.pdf');
   };
 
-  // React.useEffect(()=>{
-  //   console.debug(files)
-  // }, [files])
+  // 页面加载时初始化GeoJSON
+  // React.useEffect(() => {
+  //   const loadLocalGeoJSON = async () => {
+  //     // if (cachedGeoJSON) {
+  //     //   setGeoData(cachedGeoJSON);
+  //     //   return;
+  //     // }
+
+  //     try {
+  //       const responseP = await fetch('/geojson/p.geojson'); // 文件放在public目录下
+  //       const responseC = await fetch('/geojson/c.geojson'); // 文件放在public目录下
+  //       const responseD = await fetch('/geojson/d.geojson'); // 文件放在public目录下
+
+  //       cachedGeoJSON = {
+  //         "province": (await responseP.json()).features,
+  //         "city": (await responseC.json()).features,
+  //         "distinct": (await responseD.json()).features
+  //       }
+  //       setGeoData(cachedGeoJSON);
+  //     } catch (error) {
+  //       console.error('加载本地GeoJSON失败:', error);
+  //     }
+  //   };
+
+  //   loadLocalGeoJSON();
+  // }, []);
+
+  React.useEffect(()=>{
+    [geodataP, geodataC, geodataD].forEach((r)=>{
+      if (r.isLoading || r.isError)
+        setReadyGeodata(false)
+        return
+    })
+    setReadyGeodata(true)
+  }, [geodataP, geodataC, geodataD])
 
   return (
-    <div className="flex flex-col w-screen h-screen max-h-screen bg-accent overflow-hidden">
-      <div className="flex w-full py-1 px-4 space-x-4 bg-white shadow text-nowrap">
-        <div className="flex space-x-1.5 ">
-          <Label htmlFor="paperSize">选择相纸</Label> 
-          <Select onValueChange={handleSelectedSize} >
-            <SelectTrigger className="w-24 cursor-pointer hover:bg-accent hover:border-gray-400">
-              <SelectValue placeholder="7inch" />
-            </SelectTrigger>
-            <SelectContent >
-              {Object.keys(PAPER_SIZES).map((size, index) => <SelectItem key={index} value={size} className='cursor-pointer'>{size}</SelectItem>)}
-            </SelectContent>
-          </Select>
+    <PaperContext.Provider value={PAPER_SIZES[selectedSize]}>
+      <PhotoContext.Provider value={[photos, setPhotos]}>
+      <div className="flex flex-col w-screen h-screen max-h-screen bg-accent overflow-hidden relative">
+        <div className={`${readyGeodata ? "hidden" : ""} flex flex-col w-screen h-screen absolute left-0 top-0 bg-black opacity-50`}>
+          Loading geodata ...
         </div>
+        <div className="flex w-full py-1 px-4 space-x-4 bg-white shadow text-nowrap">
+          <div className="flex space-x-1.5 ">
+            <Label htmlFor="paperSize">选择相纸</Label>
+            <Select onValueChange={handleSelectedSize} >
+              <SelectTrigger className="w-24 cursor-pointer hover:bg-accent hover:border-gray-400">
+                <SelectValue placeholder="7inch" />
+              </SelectTrigger>
+              <SelectContent >
+                {Object.keys(PAPER_SIZES).map((size, index) => <SelectItem key={index} value={size} className='cursor-pointer'>{size}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
 
-        <div className="flex space-x-1.5">
-          <Input
-            id="selectPhoto"
-            type="file"
-            accept="image/*"
-            onChange={handleFileSelect}
-            className='cursor-pointer hover:bg-accent hover:border-gray-400'
-            multiple
-          />
+          <div className="flex space-x-1.5">
+            <Input
+              id="selectPhoto"
+              type="file"
+              accept="image/*"
+              onChange={handleFileSelect}
+              className='cursor-pointer hover:bg-accent hover:border-gray-400'
+              multiple
+            />
+          </div>
+          <div className="flex flex-grow justify-end">
+            <Button className='cursor-pointer px-8 select-none' disabled={!readyPrint} onClick={generatePDF}>Print</Button>
+          </div>
         </div>
-        <div className="flex flex-grow justify-end">
-          <Button className='cursor-pointer px-8 select-none' disabled={!okToPrint} onClick={generatePDF}>Print</Button>
-        </div>
+        <ScrollArea className="w-full h-dvh ">
+          <div className='flex flex-wrap p-4 gap-4'>
+            {Object.entries(photos).map(([index, photo], ) => (
+              <Photo key={photofile.size} index={index} />
+            ))}
+          </div>
+
+        </ScrollArea>
       </div>
-      <ScrollArea className="w-full h-dvh ">
-        <div className='flex flex-wrap p-4 gap-4'>
-          {files.map((file, index) => (
-            <Photo key={file.size} index={index} file={file} setCanvasMap={setCanvasMap} ></Photo>
-          ))}
-        </div>
+      </PhotoContext.Provider>
+    </PaperContext.Provider>
 
-      </ScrollArea>
-    </div>
   )
 }

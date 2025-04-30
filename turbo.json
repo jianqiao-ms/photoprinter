@@ -1,0 +1,7 @@
+{
+    "globalDependencies": {
+      "exclude": [
+        "public/geojson/*.geojson"
+      ]
+    }
+  }

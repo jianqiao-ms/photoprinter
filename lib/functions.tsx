@@ -1,7 +1,14 @@
+"use client"
+
 import { INCH_TO_MM, PaperSizeKey, VALID_PAPER_KEYS, DPI } from "./const";
+import useSWR from 'swr';
 
 export const mmToPixels = (mm: number): number => {
   return Math.round((mm / INCH_TO_MM) * DPI);
+}
+
+export const pixelsToMM = (pixels: number): number => {
+  return Math.round((pixels / DPI) * INCH_TO_MM);
 }
 
 export function isPaperSizeKeyOptimized(key: string): key is PaperSizeKey {
@@ -24,58 +31,54 @@ export async function loadImageFile(file: File): Promise<HTMLImageElement> {
     });
   }
   
-export function createHighResCanvas(original: HTMLCanvasElement, scale = 2): HTMLCanvasElement {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d')!;
+// export function createHighResCanvas(original: HTMLCanvasElement, scale = 2): HTMLCanvasElement {
+//     const canvas = document.createElement('canvas');
+//     const ctx = canvas.getContext('2d')!;
     
-    canvas.width = original.width * scale;
-    canvas.height = original.height * scale;
+//     canvas.width = original.width * scale;
+//     canvas.height = original.height * scale;
     
-    ctx.scale(scale, scale);
-    ctx.drawImage(original, 0, 0);
+//     ctx.scale(scale, scale);
+//     ctx.drawImage(original, 0, 0);
     
-    return canvas;
+//     return canvas;
+//   }
+ 
+// const convertCoord = (lng: number, lat: number) => {
+//   return gcoord.transform(
+//     [lng, lat],
+//     gcoord.WGS84,
+//     gcoord.GCJ02
+//   ) as [number, number];
+// };
+
+
+export async function getLocationName(lat: number, lon: number, geoData: string ) {
+  try {
+    // const response = await fetch(
+    //   `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`
+    // );
+    // const data = await response.json();
+    // return data.display_name || 'Unknown Location';
+    const matchedRegion = geoData.find(region => 
+      booleanPointInPolygon(point, region.geometry)
+    );
+  } catch {
+    return 'Unknown Location';
   }
+}
   
- export async function getLocationName(lat: number, lon: number): Promise<string> {
-    try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`
-      );
-      const data = await response.json();
-      return data.display_name || 'Unknown Location';
-    } catch {
-      return 'Unknown Location';
-    }
-  }
+const fetcher = (url: string) => fetch(url).then((res) => res.json())
+
+
+export const useGeodata = (category: string) => {
+  const { data, error, isLoading } = useSWR(`/geojson/${category}.geojson`, fetcher)
   
-export function printTemplate(imageUrl: string): string {
-    return `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>照片打印</title>
-          <style>
-            @page {
-              size: 178mm 127mm;
-              margin: 0;
-            }
-            body { 
-              margin: 0;
-              width: 178mm;
-              height: 127mm;
-            }
-            img {
-              width: 100%;
-              height: 100%;
-              object-fit: contain;
-            }
-          </style>
-        </head>
-        <body>
-          <img src="${imageUrl}" />
-        </body>
-      </html>
-    `;
+  return {
+    user: data?.features,
+    isLoading,
+    isError: error,
   }
+}
+  
   
